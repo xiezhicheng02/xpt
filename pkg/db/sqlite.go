@@ -4,8 +4,6 @@ package db
 import (
 	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -14,36 +12,6 @@ import (
 	// 驱动名为 "sqlite"。比 mattn/go-sqlite3 的构建更简单，适合学习与跨平台。
 	_ "modernc.org/sqlite"
 )
-
-// ResolveDBPath 从多个候选路径中选择"父目录存在"的第一个。
-// 数据库文件本身可不存在（首次运行会自动创建），所以只看父目录。
-//
-// 解决"工作目录不同导致相对路径失效"的问题：命令行运行（cwd=项目根）
-// 与 VSCode 调试（cwd=cmd 目录）都能找到正确的 data 目录。
-//
-//	dbPath := db.ResolveDBPath(
-//	    "./data/dht.db",        // 从项目根运行
-//	    "../../../data/dht.db", // 从 cmd 目录运行/调试（services/xxx/cmd -> 项目根）
-//	)
-//
-// 若所有候选的父目录都不存在，会尝试创建第一个候选的父目录（如项目根 data/）。
-func ResolveDBPath(candidates ...string) string {
-	for _, p := range candidates {
-		dir := filepath.Dir(p)
-		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
-			return p
-		}
-	}
-	// 全部不可用：尝试创建第一个候选的父目录，兜底返回它。
-	if len(candidates) > 0 {
-		dir := filepath.Dir(candidates[0])
-		if err := os.MkdirAll(dir, 0o755); err == nil {
-			return candidates[0]
-		}
-		return candidates[0]
-	}
-	return "./data/app.db"
-}
 
 // NewSQLite 打开（必要时创建）sqlite 数据库。
 // 使用 WAL 模式提升并发读写性能，开启外键约束。

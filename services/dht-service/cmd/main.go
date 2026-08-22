@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/xiezc/xpt/api/gen/dht"
+	"github.com/xiezc/xpt/pkg/apppath"
 	"github.com/xiezc/xpt/pkg/config"
 	"github.com/xiezc/xpt/pkg/db"
 	"github.com/xiezc/xpt/pkg/logger"
@@ -26,11 +27,9 @@ import (
 )
 
 func main() {
-	// 多路径探测：兼容项目根运行（make run-dht）与 VSCode 调试（cwd=cmd 目录）。
-	cfg, err := config.LoadAny(
-		"./services/dht-service/config.yaml", // 从项目根运行
-		"../config.yaml",                     // 从 cmd 目录运行/调试
-	)
+	// 统一路径方案：向上查找 go.mod 定位项目根，之后全部用绝对路径，
+	// 与 cwd 无关（命令行运行 / VSCode 调试 / 任意目录启动都正确）。
+	cfg, err := config.Load(apppath.Config("dht-service"))
 	if err != nil {
 		slog.Error("load config failed", "err", err)
 		os.Exit(1)
@@ -40,11 +39,7 @@ func main() {
 	log := logger.WithComponent("dht-service")
 	log.Info("starting dht-service")
 
-	// 多路径探测 db 位置：兼容项目根运行与 cmd 目录调试。
-	sqlDB, err := db.NewSQLite(db.ResolveDBPath(
-		cfg.GetString("dht_sqlite_path"),
-		"../../../data/dht.db",
-	))
+	sqlDB, err := db.NewSQLite(apppath.Data("dht.db"))
 	if err != nil {
 		log.Error("open sqlite failed", "err", err)
 		os.Exit(1)
