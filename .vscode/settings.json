@@ -1,0 +1,38 @@
+{
+    // Go 环境配置（你的 Go 装在 ~/.local/go，不在默认的 /usr/local/go）
+    "go.goroot": "/home/xiezc/.local/go",
+    "go.gopath": "/home/xiezc/go",
+    "go.toolsEnvVars": {
+        "GOPROXY": "https://goproxy.cn,direct",
+        "GOROOT": "/home/xiezc/.local/go"
+    },
+    "go.buildTags": "",
+
+    // 编辑器行为
+    "editor.formatOnSave": true,
+    "editor.insertSpaces": true,
+    "editor.tabSize": 4,
+    "files.eol": "\n",
+
+    // Go 相关
+    "go.useLanguageServer": true,
+    "gopls": {
+        "ui.completion.usePlaceholders": true,
+        "ui.diagnostic.staticcheck": false
+    },
+    "go.testOnSave": false,
+
+    // 终端里 make 命令需要 GOROOT（非交互 shell 不加载 .bashrc 时）
+    // 注意：VSCode 运行在玲珑容器内，容器 /usr/bin 没有 git/go，
+    // 所以 PATH 显式列出 ~/.local/bin（git 复制在此）与 go 目录。
+    "terminal.integrated.env.linux": {
+        "GOROOT": "/home/xiezc/.local/go",
+        "GOPATH": "/home/xiezc/go",
+        "GOPROXY": "https://goproxy.cn,direct",
+        "PATH": "/home/xiezc/.local/bin:/home/xiezc/.local/go/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games:/sbin:/usr/sbin"
+    },
+
+    // VSCode 源代码管理面板也走容器路径，需显式指定 git 位置
+    "git.path": "/home/xiezc/.local/bin/git",
+    "git.enabled": true
+}

@@ -1,0 +1,6 @@
+debug: true
+log_level: debug
+tracker_sqlite_path: "./data/tracker.db"
+udp_listen: "0.0.0.0:6969"
+grpc_listen: "127.0.0.1:50051"
+announce_interval: 1800

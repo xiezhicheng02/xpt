@@ -1,0 +1,28 @@
+syntax = "proto3";
+package tracker;
+option go_package = "github.com/xiezc/xpt/api/gen/tracker";
+
+service TrackerService {
+  rpc GetTorrentPeers(GetTorrentPeersRequest) returns (GetTorrentPeersResponse);
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+}
+
+message GetTorrentPeersRequest {
+  string info_hash = 1;
+}
+message Peer {
+  string peer_id =1;
+  string ip =2;
+  int32 port =3;
+  bool is_seeder =4;
+}
+message GetTorrentPeersResponse {
+  repeated Peer peers = 1;
+}
+
+message GetStatsRequest {}
+message GetStatsResponse {
+  int64 total_torrents = 1;
+  int64 total_seeders =2;
+  int64 total_leechers =3;
+}

@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS dht_nodes (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	node_id TEXT,
+	ip TEXT,
+	port INTEGER,
+	last_seen DATETIME
+);
+CREATE TABLE IF NOT EXISTS dht_infohash (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	info_hash TEXT UNIQUE,
+	discover_at DATETIME
+);

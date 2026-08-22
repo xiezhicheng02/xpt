@@ -1,0 +1,12 @@
+syntax = "proto3";
+package dht;
+option go_package = "github.com/xiezc/xpt/api/gen/dht";
+
+service DhtService {
+  rpc GetKnownInfoHash(GetKnownInfoHashRequest) returns (GetKnownInfoHashResponse);
+}
+
+message GetKnownInfoHashRequest{}
+message GetKnownInfoHashResponse{
+  repeated string info_hash =1;
+}

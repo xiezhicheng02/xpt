@@ -1,0 +1,96 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "make gen-proto（生成 grpc 代码）",
+            "type": "shell",
+            "command": "make",
+            "args": ["gen-proto"],
+            "group": "build",
+            "problemMatcher": [],
+            "detail": "cd api/proto && buf generate，修改 proto 后运行"
+        },
+        {
+            "label": "make build-all（编译全部服务）",
+            "type": "shell",
+            "command": "make",
+            "args": ["build-all"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$go"
+            ],
+            "detail": "编译 dht/tracker/web 三个服务到 bin/"
+        },
+        {
+            "label": "make run-dht（运行 DHT 服务）",
+            "type": "shell",
+            "command": "make",
+            "args": ["run-dht"],
+            "group": "test",
+            "problemMatcher": [],
+            "isBackground": true,
+            "detail": "go run ./services/dht-service/cmd"
+        },
+        {
+            "label": "make run-tracker（运行 Tracker 服务）",
+            "type": "shell",
+            "command": "make",
+            "args": ["run-tracker"],
+            "group": "test",
+            "problemMatcher": [],
+            "isBackground": true,
+            "detail": "go run ./services/tracker-service/cmd"
+        },
+        {
+            "label": "make run-web（运行 Web 服务）",
+            "type": "shell",
+            "command": "make",
+            "args": ["run-web"],
+            "group": "test",
+            "problemMatcher": [],
+            "isBackground": true,
+            "detail": "go run ./services/web-server/cmd"
+        },
+        {
+            "label": "make test（运行全部测试）",
+            "type": "shell",
+            "command": "make",
+            "args": ["test"],
+            "group": "test",
+            "problemMatcher": [],
+            "detail": "go test -v ./..."
+        },
+        {
+            "label": "make tidy（整理依赖）",
+            "type": "shell",
+            "command": "make",
+            "args": ["tidy"],
+            "group": "build",
+            "problemMatcher": [],
+            "detail": "go mod tidy"
+        },
+        {
+            "label": "make vet（静态检查）",
+            "type": "shell",
+            "command": "make",
+            "args": ["vet"],
+            "group": "build",
+            "problemMatcher": [
+                "$go"
+            ],
+            "detail": "go vet ./..."
+        },
+        {
+            "label": "make fmt（格式化代码）",
+            "type": "shell",
+            "command": "make",
+            "args": ["fmt"],
+            "group": "build",
+            "problemMatcher": [],
+            "detail": "gofmt -w ./pkg ./services ./internal"
+        }
+    ]
+}

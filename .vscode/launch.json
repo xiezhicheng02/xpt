@@ -1,0 +1,60 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "🚀 调试 dht-service",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/services/dht-service/cmd",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "args": [],
+            "env": {},
+            "showLog": true
+        },
+        {
+            "name": "🚀 调试 tracker-service",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/services/tracker-service/cmd",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "args": [],
+            "env": {},
+            "showLog": true
+        },
+        {
+            "name": "🚀 调试 web-server",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/services/web-server/cmd",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "args": [],
+            "env": {},
+            "showLog": true
+        },
+        {
+            "name": "🧪 调试单元测试",
+            "type": "go",
+            "request": "launch",
+            "mode": "test",
+            "program": "${fileDirname}",
+            "console": "integratedTerminal"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "🚀 同时启动全部服务（dht+tracker+web）",
+            "configurations": [
+                "🚀 调试 dht-service",
+                "🚀 调试 tracker-service",
+                "🚀 调试 web-server"
+            ],
+            "stopAll": true
+        }
+    ]
+}

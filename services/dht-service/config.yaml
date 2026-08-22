@@ -1,0 +1,5 @@
+debug: true
+log_level: debug
+dht_sqlite_path: "./data/dht.db"
+grpc_listen: "127.0.0.1:50052"
+dht_udp_addr: "0.0.0.0:6881"
