@@ -1,0 +1,16 @@
+goos: linux
+goarch: amd64
+pkg: github.com/xiezc/xpt/pkg/bencode
+cpu: Intel(R) Core(TM) i7-8550U CPU @ 1.80GHz
+BenchmarkDecodeInt-8          	 5222310	       220.4 ns/op	     152 B/op	       2 allocs/op
+BenchmarkDecodeString-8       	11118854	       110.5 ns/op	     130 B/op	       2 allocs/op
+BenchmarkDecodeList-8         	  799612	      1525 ns/op	    1658 B/op	      17 allocs/op
+BenchmarkDecodeDict-8         	  690122	      1675 ns/op	    1904 B/op	      17 allocs/op
+BenchmarkEncodeInt-8          	39281826	        30.19 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEncodeString-8       	77964517	        16.74 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEncodeList-8         	 9263824	       136.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEncodeDict-8         	 2571388	       494.8 ns/op	      80 B/op	       1 allocs/op
+BenchmarkEncodeWithRaw-8      	364807791	         4.310 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEncodeWithoutRaw-8   	 8748360	       121.6 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/xiezc/xpt/pkg/bencode	15.716s

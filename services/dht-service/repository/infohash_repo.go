@@ -25,10 +25,10 @@ func NewInfoHashRepo(db *sqlx.DB) *InfoHashRepo {
 }
 
 // Insert 记录一个新发现的 infohash（重复则忽略）。
-func (r *InfoHashRepo) Insert(hash string) error {
+func (r *InfoHashRepo) Insert(hash string, nodeId string) error {
 	_, err := r.db.Exec(`
-INSERT OR IGNORE INTO dht_infohash(info_hash, discover_at)
-VALUES (?, ?)`, hash, time.Now())
+INSERT OR IGNORE INTO dht_infohash(info_hash, node_id, discover_at)
+VALUES (?,?, ?)`, hash, nodeId, time.Now())
 	return err
 }
 

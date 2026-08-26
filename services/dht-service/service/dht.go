@@ -15,6 +15,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/xiezc/xpt/pkg/util"
 	"github.com/xiezc/xpt/services/dht-service/repository"
 )
 
@@ -38,15 +39,16 @@ type DHTService struct {
 
 // New 构造 DHTService，并准备 UDP 监听。
 func New(nodeRepo *repository.NodeRepo, hashRepo *repository.InfoHashRepo, udpAddr string) (*DHTService, error) {
-	udp, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: portOf(udpAddr)})
+	udp, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: portOf(udpAddr)})
 	if err != nil {
 		return nil, err
 	}
+	id := util.SHA1([]byte(udpAddr))
 	return &DHTService{
 		nodeRepo: nodeRepo,
 		hashRepo: hashRepo,
 		udpConn:  udp,
-		selfID:   randomNodeID(),
+		selfID:   id,
 	}, nil
 }
 
@@ -87,6 +89,7 @@ func (s *DHTService) loop(ctx context.Context) {
 		}
 		// TODO(学习): 调用 handleMessage 解析 KRPC 消息并分派。
 		slog.Debug("udp packet", "from", addr.String(), "len", n)
+
 	}
 }
 
@@ -97,6 +100,7 @@ func (s *DHTService) loop(ctx context.Context) {
 //	y == "q" -> handleQuery
 func (s *DHTService) handleMessage(addr *net.UDPAddr, data []byte) {
 	// 骨架：暂不实现，等你学完 bencode 后填充。
+
 }
 
 // Close 释放资源。

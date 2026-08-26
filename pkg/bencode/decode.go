@@ -1,6 +1,7 @@
 package bencode
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -8,117 +9,107 @@ import (
 
 // 常见的解析错误。
 var (
-	ErrUnexpectedEOF = errors.New("bencode: unexpected end of data")
-	ErrInvalidData   = errors.New("bencode: invalid data")
+	ErrUnexpectedEOF      = errors.New("bencode: unexpected end of data")
+	ErrInvalidData        = errors.New("bencode: invalid data")
+	ErrUnexpectedTypeData = errors.New("bencode: 从错误的类型中无法获取到值")
 )
 
-// Decode 将 bencode 编码的字节流解析为 BNode 树。
-//
-// 它支持四种 bencode 类型：
-//   - 整数:   i<十进制数字>e
-//   - 字符串: <十进制长度>:<原始字节>
-//   - 列表:   l<元素...>e
-//   - 字典:   d<键><值>...e（键必须是 bencode 字符串）
+// Decode 完整解析bencode，必须消费全部字节，尾部多余字节返回错误
 func Decode(data []byte) (*BNode, error) {
-	p := &parser{data: data}
-	n, err := p.parseValue()
+	pos := 0
+	n, err := DecodeValue(data, &pos)
 	if err != nil {
 		return nil, err
 	}
-	if p.pos != len(data) {
-		return nil, fmt.Errorf("%w: %d trailing bytes", ErrInvalidData, len(data)-p.pos)
+	if pos != len(data) {
+		return nil, fmt.Errorf("%w: %d trailing bytes", ErrInvalidData, len(data)-pos)
 	}
 	return n, nil
 }
 
-// MustDecode 与 Decode 相同，但在出错时 panic。适合解析内嵌的固定结构。
-func MustDecode(data []byte) *BNode {
-	n, err := Decode(data)
-	if err != nil {
-		panic(err)
-	}
-	return n
-}
-
-type parser struct {
-	data []byte
-	pos  int
-}
-
-func (p *parser) parseValue() (*BNode, error) {
-	if p.pos >= len(p.data) {
+func DecodeValue(data []byte, pos *int) (*BNode, error) {
+	i := *pos
+	if i >= len(data) {
 		return nil, ErrUnexpectedEOF
 	}
-	switch c := p.data[p.pos]; c {
+	switch c := data[i]; c {
 	case 'i':
-		return p.parseInt()
+		return parseInt(data, pos)
 	case 'l':
-		return p.parseList()
+		return parseList(data, pos)
 	case 'd':
-		return p.parseDict()
+		return parseDict(data, pos)
 	default:
 		if c >= '0' && c <= '9' {
-			return p.parseString()
+			return parseString(data, pos)
 		}
-		return nil, fmt.Errorf("%w: unexpected byte %q at offset %d", ErrInvalidData, c, p.pos)
+		return nil, fmt.Errorf("%w: unexpected byte %q at offset %d", ErrInvalidData, c, *pos)
 	}
 }
 
 // parseInt 解析 i<数字>e 形式。
-func (p *parser) parseInt() (*BNode, error) {
-	p.pos++ // 跳过 'i'
-	start := p.pos
-	for p.pos < len(p.data) && p.data[p.pos] != 'e' {
-		p.pos++
+func parseInt(data []byte, pos *int) (*BNode, error) {
+	i := *pos
+	i++ // 跳过 'i'
+	start := i
+	for i < len(data) && data[i] != 'e' {
+		i++
 	}
-	if p.pos >= len(p.data) {
+	if i >= len(data) {
 		return nil, ErrUnexpectedEOF
 	}
-	raw := string(p.data[start:p.pos])
-	p.pos++ // 跳过 'e'
+	raw := string(data[start:i])
+	// bencode规范禁止 -0
+	if raw == "-0" {
+		return nil, fmt.Errorf("%w: invalid integer -0", ErrInvalidData)
+	}
+	i++ // 跳过 'e'
 	v, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("%w: bad integer %q", ErrInvalidData, raw)
 	}
-	return &BNode{Type: BInt, Int: v}, nil
+	*pos = i //写回外部的指针, 改变外部的指针对应的值
+	return &BNode{Type: BInt, Int: v, Raw: data[start-1 : i]}, nil
 }
 
 // parseString 解析 <长度>:<字节> 形式。
-func (p *parser) parseString() (*BNode, error) {
-	start := p.pos
-	for p.pos < len(p.data) && p.data[p.pos] != ':' {
-		p.pos++
+func parseString(data []byte, pos *int) (*BNode, error) {
+	i := *pos
+	start := i
+	for i < len(data) && data[i] != ':' {
+		i++
 	}
-	if p.pos >= len(p.data) {
+	if i >= len(data) {
 		return nil, ErrUnexpectedEOF
 	}
-	lenStr := string(p.data[start:p.pos])
+	lenStr := string(data[start:i])
 	n, err := strconv.Atoi(lenStr)
 	if err != nil || n < 0 {
 		return nil, fmt.Errorf("%w: bad string length %q", ErrInvalidData, lenStr)
 	}
-	p.pos++ // 跳过 ':'
-	if p.pos+n > len(p.data) {
+	i++ // 跳过 ':'
+	if i+n > len(data) {
 		return nil, ErrUnexpectedEOF
 	}
-	s := string(p.data[p.pos : p.pos+n])
-	p.pos += n
-	return &BNode{Type: BString, Str: s}, nil
+	s := data[i : i+n]
+	i += n
+	*pos = i
+	return &BNode{Type: BString, Str: s, Raw: data[start:i]}, nil
 }
 
 // parseList 解析 l<元素...>e 形式。
-func (p *parser) parseList() (*BNode, error) {
-	p.pos++ // 跳过 'l'
+func parseList(data []byte, pos *int) (*BNode, error) {
+	*pos++ // 跳过 'l'
 	node := &BNode{Type: BList}
 	for {
-		if p.pos >= len(p.data) {
+		if *pos >= len(data) {
 			return nil, ErrUnexpectedEOF
 		}
-		if p.data[p.pos] == 'e' {
-			p.pos++
+		if data[*pos] == 'e' {
+			*pos++
 			return node, nil
 		}
-		item, err := p.parseValue()
+		item, err := DecodeValue(data, pos)
 		if err != nil {
 			return nil, err
 		}
@@ -127,49 +118,100 @@ func (p *parser) parseList() (*BNode, error) {
 }
 
 // parseDict 解析 d<键><值>...e 形式，键必须是 bencode 字符串。
-func (p *parser) parseDict() (*BNode, error) {
-	p.pos++ // 跳过 'd'
+func parseDict(data []byte, pos *int) (*BNode, error) {
+	*pos++ // 跳过 'd'
 	node := &BNode{Type: BDict, Dict: make(map[string]*BNode)}
 	for {
-		if p.pos >= len(p.data) {
+		if *pos >= len(data) {
 			return nil, ErrUnexpectedEOF
 		}
-		if p.data[p.pos] == 'e' {
-			p.pos++
+		if data[*pos] == 'e' {
+			*pos++
 			return node, nil
 		}
-		key, err := p.parseString()
+		key, err := parseString(data, pos)
 		if err != nil {
 			return nil, err
 		}
-		val, err := p.parseValue()
+		val, err := DecodeValue(data, pos)
 		if err != nil {
 			return nil, err
 		}
-		node.Dict[key.Str] = val
+		keyStr, err := key.GetString()
+		if err != nil {
+			return nil, err
+		}
+		node.Dict[keyStr] = val
+		node.DictKeys = append(node.DictKeys, keyStr) //记录key，编码使用
 	}
 }
 
-// Get 返回字典中指定键的值；非字典或键不存在时返回 nil。
-func (n *BNode) Get(key string) *BNode {
+func (n *BNode) GetInt() (int64, error) {
+	if n == nil || n.Type != BInt {
+		return 0, fmt.Errorf("%w: expect Bnode type %s", ErrUnexpectedTypeData, BInt)
+	}
+	return n.Int, nil
+}
+
+func (n *BNode) GetHexString() (string, error) {
+	if n == nil || n.Type != BString {
+		return "", fmt.Errorf("%w: expect Bnode type %s", ErrUnexpectedTypeData, BString)
+	}
+	return hex.EncodeToString(n.Str), nil
+}
+
+func (n *BNode) GetString() (string, error) {
+	if n == nil || n.Type != BString {
+		return "", fmt.Errorf("%w: expect Bnode type %s", ErrUnexpectedTypeData, BString)
+	}
+	return string(n.Str), nil
+}
+
+func (n *BNode) GetList() ([]*BNode, error) {
+	if n == nil || n.Type != BList {
+		return nil, fmt.Errorf("%w: expect Bnode type %s", ErrUnexpectedTypeData, BList)
+	}
+	return n.List, nil
+}
+
+// GetDictValue 返回字典中指定键的值；非字典或键不存在时返回 nil。
+func (n *BNode) GetDictValue(key string) (*BNode, error) {
 	if n == nil || n.Type != BDict {
-		return nil
+		return nil, fmt.Errorf("%w: expect Bnode type %s", ErrUnexpectedTypeData, BDict)
 	}
-	return n.Dict[key]
+	return n.Dict[key], nil
 }
 
-// GetString 便捷方法：返回字典键的字符串值；不存在或类型不符时返回空串。
-func (n *BNode) GetString(key string) string {
-	if v := n.Get(key); v != nil && v.Type == BString {
-		return v.Str
+// GetDictStrValue 返回字典键的字符串值；key不存在返回("",nil)；类型错误返回error
+func (n *BNode) GetDictStrValue(key string) (string, error) {
+	v, err := n.GetDictValue(key)
+	if err != nil {
+		return "", err
 	}
-	return ""
+	if v == nil {
+		return "", nil // key不存在
+	}
+	if v.Type != BString {
+		return "", fmt.Errorf("%w: expect Bnode Dict value type %s, got %s", ErrUnexpectedTypeData, BString, v.Type)
+	}
+	getString, err := v.GetString()
+	if err != nil {
+		return "", err
+	}
+	return getString, nil
 }
 
-// GetInt 便捷方法：返回字典键的整数值；不存在或类型不符时返回 0。
-func (n *BNode) GetInt(key string) int64 {
-	if v := n.Get(key); v != nil && v.Type == BInt {
-		return v.Int
+// GetDictIntValue 返回字典键的整数值；key不存在返回(0,nil)；类型错误返回error
+func (n *BNode) GetDictIntValue(key string) (int64, error) {
+	v, err := n.GetDictValue(key)
+	if err != nil {
+		return 0, err
 	}
-	return 0
+	if v == nil {
+		return 0, nil // key不存在
+	}
+	if v.Type != BInt {
+		return 0, fmt.Errorf("%w: expect Bnode Dict value type %s, got %s", ErrUnexpectedTypeData, BInt, v.Type)
+	}
+	return v.Int, nil
 }
