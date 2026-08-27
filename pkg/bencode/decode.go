@@ -21,7 +21,7 @@ func Decode(data []byte) (*BNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	if pos != len(data) {
+	if pos > len(data) {
 		return nil, fmt.Errorf("%w: %d trailing bytes", ErrInvalidData, len(data)-pos)
 	}
 	return n, nil
