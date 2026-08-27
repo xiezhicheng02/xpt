@@ -122,7 +122,7 @@ func (s *DHTService) Run(ctx context.Context) error {
 // recvLoop 接收协程：只做 UDP 读取 + 前置解码校验 + 入队
 // 核心原则：尽可能快地清空内核缓冲区，不做业务逻辑
 func (s *DHTService) recvLoop(ctx context.Context) {
-	buf := make([]byte, 4096) // 单缓冲区复用，减少GC
+	buf := make([]byte, 1025) // 单缓冲区复用，减少GC
 	for {
 		// 非阻塞检查取消信号
 		select {
@@ -137,8 +137,8 @@ func (s *DHTService) recvLoop(ctx context.Context) {
 			slog.Error("udp SetReadDeadline error", "err", err)
 			return
 		}
-		_, addr, err := s.udpConn.ReadFromUDP(buf)
-		if err != nil {
+		n, addr, err := s.udpConn.ReadFromUDP(buf)
+		if err != nil || n == 1025 {
 			// 超时是正常现象，直接下一轮
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				continue
@@ -147,7 +147,7 @@ func (s *DHTService) recvLoop(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			slog.Warn("udp read error", "err", err)
+			slog.Warn("udp read error", "err", err, n)
 			continue
 		}
 
