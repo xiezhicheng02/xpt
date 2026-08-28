@@ -137,7 +137,7 @@ func parseDict(data []byte, pos *int) (*BNode, error) {
 		if err != nil {
 			return nil, err
 		}
-		keyStr, err := key.GetString()
+		keyStr, err := key.ToString()
 		if err != nil {
 			return nil, err
 		}
@@ -146,28 +146,34 @@ func parseDict(data []byte, pos *int) (*BNode, error) {
 	}
 }
 
-func (n *BNode) GetInt() (int64, error) {
+func (n *BNode) ToInt() (int64, error) {
 	if n == nil || n.Type != BInt {
 		return 0, fmt.Errorf("%w: expect Bnode type %s", ErrUnexpectedTypeData, BInt)
 	}
 	return n.Int, nil
 }
 
-func (n *BNode) GetHexString() (string, error) {
+func (n *BNode) ToHexString() (string, error) {
 	if n == nil || n.Type != BString {
 		return "", fmt.Errorf("%w: expect Bnode type %s", ErrUnexpectedTypeData, BString)
 	}
 	return hex.EncodeToString(n.Str), nil
 }
+func (n *BNode) ToByteString() ([]byte, error) {
+	if n == nil || n.Type != BString {
+		return nil, fmt.Errorf("%w: expect Bnode type %s", ErrUnexpectedTypeData, BString)
+	}
+	return n.Str, nil
+}
 
-func (n *BNode) GetString() (string, error) {
+func (n *BNode) ToString() (string, error) {
 	if n == nil || n.Type != BString {
 		return "", fmt.Errorf("%w: expect Bnode type %s", ErrUnexpectedTypeData, BString)
 	}
 	return string(n.Str), nil
 }
 
-func (n *BNode) GetList() ([]*BNode, error) {
+func (n *BNode) ToList() ([]*BNode, error) {
 	if n == nil || n.Type != BList {
 		return nil, fmt.Errorf("%w: expect Bnode type %s", ErrUnexpectedTypeData, BList)
 	}
@@ -194,7 +200,7 @@ func (n *BNode) GetDictStrValue(key string) (string, error) {
 	if v.Type != BString {
 		return "", fmt.Errorf("%w: expect Bnode Dict value type %s, got %s", ErrUnexpectedTypeData, BString, v.Type)
 	}
-	getString, err := v.GetString()
+	getString, err := v.ToString()
 	if err != nil {
 		return "", err
 	}

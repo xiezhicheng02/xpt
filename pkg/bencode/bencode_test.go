@@ -40,7 +40,7 @@ func TestDecodeInt(t *testing.T) {
 			if err != nil {
 				t.Fatalf("err: %v", err)
 			}
-			v, err := n.GetInt()
+			v, err := n.ToInt()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -86,7 +86,7 @@ func TestDecodeString(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			s, err := n.GetString()
+			s, err := n.ToString()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -110,15 +110,15 @@ func TestDecodeList(t *testing.T) {
 		if n.Type != BList || len(n.List) != 2 {
 			t.Fatalf("unexpected: %+v", n)
 		}
-		list, err := n.GetList()
+		list, err := n.ToList()
 		if err != nil {
 			t.Fatal(err)
 		}
-		getString, err := list[0].GetString()
+		getString, err := list[0].ToString()
 		if err != nil {
 			t.Fatal(err)
 		}
-		getInt, err := list[1].GetInt()
+		getInt, err := list[1].ToInt()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -361,19 +361,19 @@ func TestDecodeValue_EOF(t *testing.T) {
 
 func TestGetterNilNode(t *testing.T) {
 	var n *BNode = nil
-	_, err := n.GetInt()
+	_, err := n.ToInt()
 	if err == nil {
 		t.Error("GetInt nil node want error")
 	}
-	_, err = n.GetString()
+	_, err = n.ToString()
 	if err == nil {
 		t.Error("GetString nil node want error")
 	}
-	_, err = n.GetHexString()
+	_, err = n.ToHexString()
 	if err == nil {
 		t.Error("GetHexString nil node want error")
 	}
-	_, err = n.GetList()
+	_, err = n.ToList()
 	if err == nil {
 		t.Error("GetList nil node want error")
 	}
@@ -393,15 +393,15 @@ func TestGetterNilNode(t *testing.T) {
 
 func TestGetterTypeMismatch(t *testing.T) {
 	nodeInt := &BNode{Type: BInt, Int: 10}
-	_, err := nodeInt.GetString()
+	_, err := nodeInt.ToString()
 	if err == nil {
 		t.Error("int node call GetString want error")
 	}
-	_, err = nodeInt.GetHexString()
+	_, err = nodeInt.ToHexString()
 	if err == nil {
 		t.Error("int node call GetHexString want error")
 	}
-	_, err = nodeInt.GetList()
+	_, err = nodeInt.ToList()
 	if err == nil {
 		t.Error("int node call GetList want error")
 	}
@@ -411,21 +411,21 @@ func TestGetterTypeMismatch(t *testing.T) {
 	}
 
 	nodeStr := &BNode{Type: BString, Str: []byte("abc")}
-	_, err = nodeStr.GetInt()
+	_, err = nodeStr.ToInt()
 	if err == nil {
 		t.Error("string node call GetInt want error")
 	}
-	_, err = nodeStr.GetList()
+	_, err = nodeStr.ToList()
 	if err == nil {
 		t.Error("string node call GetList want error")
 	}
 
 	nodeList := &BNode{Type: BList}
-	_, err = nodeList.GetInt()
+	_, err = nodeList.ToInt()
 	if err == nil {
 		t.Error("list node call GetInt want error")
 	}
-	_, err = nodeList.GetString()
+	_, err = nodeList.ToString()
 	if err == nil {
 		t.Error("list node call GetString want error")
 	}
@@ -437,7 +437,7 @@ func TestGetterTypeMismatch(t *testing.T) {
 
 func TestGetHexString_Normal(t *testing.T) {
 	n := &BNode{Type: BString, Str: []byte{0x12, 0x34, 0xab, 0xcd}}
-	s, err := n.GetHexString()
+	s, err := n.ToHexString()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -673,8 +673,8 @@ func TestNestedStructure(t *testing.T) {
 	if peer0.Type != BList || len(peer0.List) != 2 {
 		t.Fatal("peer0 list wrong")
 	}
-	p0ip, _ := peer0.List[0].GetString()
-	p0port, _ := peer0.List[1].GetInt()
+	p0ip, _ := peer0.List[0].ToString()
+	p0port, _ := peer0.List[1].ToInt()
 	if p0ip != "1.2.3.4" || p0port != 6881 {
 		t.Errorf("peer0 want 1.2.3.4:6881, got %s:%d", p0ip, p0port)
 	}
@@ -684,8 +684,8 @@ func TestNestedStructure(t *testing.T) {
 	if peer1.Type != BList || len(peer1.List) != 2 {
 		t.Fatal("peer1 list wrong")
 	}
-	p1ip, _ := peer1.List[0].GetString()
-	p1port, _ := peer1.List[1].GetInt()
+	p1ip, _ := peer1.List[0].ToString()
+	p1port, _ := peer1.List[1].ToInt()
 	if p1ip != "5.6.7.8" || p1port != 9999 {
 		t.Errorf("peer1 want 5.6.7.8:9999, got %s:%d", p1ip, p1port)
 	}
@@ -711,7 +711,7 @@ func TestDeepNested(t *testing.T) {
 	if len(cur.List) != 1 || cur.List[0].Type != BInt {
 		t.Fatal("inner most not int")
 	}
-	v, _ := cur.List[0].GetInt()
+	v, _ := cur.List[0].ToInt()
 	if v != 42 {
 		t.Errorf("inner int want 42 got %d", v)
 	}

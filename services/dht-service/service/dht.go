@@ -13,6 +13,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"runtime"
@@ -25,16 +26,10 @@ import (
 
 // -------------------- 内部消息结构体 --------------------
 
-// recvPacket 接收队列中的报文：已完成基础解码校验
-type recvPacket struct {
+// Packet 接收队列中的报文：已完成基础解码校验
+type Packet struct {
 	addr *net.UDPAddr   // 对端地址
 	data *bencode.BNode // 原始报文数据（后续替换为解析后的KRPC结构体）
-}
-
-// sendPacket 发送队列中的报文：已完成编码，等待发送
-type sendPacket struct {
-	addr *net.UDPAddr   // 目标地址
-	data *bencode.BNode // 编码后的bencode报文
 }
 
 // DHTService 是 DHT 爬虫服务的主结构。
@@ -55,8 +50,11 @@ type DHTService struct {
 	routingTable map[string]bool
 
 	// 双通道队列
-	recvCh chan *recvPacket // 接收队列：IO层 → 业务层
-	sendCh chan *sendPacket // 发送队列：业务层 → IO层
+	recvCh chan *Packet // 接收队列：IO层 → 业务层
+	sendCh chan *Packet // 发送队列：业务层 → IO层
+
+	failCount    int //没有进入通道而丢弃的包的数量,
+	successCount int //送入通道的数量
 }
 
 // New 构造 DHTService，并准备 UDP 监听。
@@ -79,8 +77,8 @@ func New(
 		selfID:   id,
 
 		// 队列缓冲：2048 是 DHT 场景的经验值，兼顾抗峰值与内存占用
-		recvCh: make(chan *recvPacket, 2048),
-		sendCh: make(chan *sendPacket, 2048),
+		recvCh: make(chan *Packet, 2048),
+		sendCh: make(chan *Packet, 2048),
 	}, nil
 }
 
@@ -89,17 +87,11 @@ func (s *DHTService) Run(ctx context.Context) error {
 	log := slog.With("component", "dht")
 	log.Info("dht service started", "self_id", hexID(s.selfID))
 
-	// TODO(学习): 启动时向 bootstrapNodes 发送 find_node，填充路由表。
-	// 之后进入 UDP 读取循环：
-	//   - find_node 响应 -> 把返回的节点写入 nodeRepo、加入路由表
-	//   - get_peers 响应  -> 可能携带 token，暂不处理
-	//   - announce_peer   -> 提取 infohash 写入 hashRepo
-
 	// 1. 启动发送协程：单协程负责所有UDP写入，保证原子性
 	go s.sendLoop(ctx)
 
 	// 2. 启动接收协程：单协程负责所有UDP读取，避免多协程抢包
-	go s.recvLoop(ctx)
+	go s.receiveLoop(ctx)
 
 	// 3. 启动N个处理Worker：CPU核数个，并行处理报文业务逻辑
 	workerNum := runtime.NumCPU()
@@ -119,9 +111,9 @@ func (s *DHTService) Run(ctx context.Context) error {
 	return nil
 }
 
-// recvLoop 接收协程：只做 UDP 读取 + 前置解码校验 + 入队
+// receiveLoop 接收协程：只做 UDP 读取 + 前置解码校验 + 入队
 // 核心原则：尽可能快地清空内核缓冲区，不做业务逻辑
-func (s *DHTService) recvLoop(ctx context.Context) {
+func (s *DHTService) receiveLoop(ctx context.Context) {
 	buf := make([]byte, 1025) // 单缓冲区复用，减少GC
 	for {
 		// 非阻塞检查取消信号
@@ -140,7 +132,8 @@ func (s *DHTService) recvLoop(ctx context.Context) {
 		n, addr, err := s.udpConn.ReadFromUDP(buf)
 		if err != nil || n == 1025 {
 			// 超时是正常现象，直接下一轮
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
 				continue
 			}
 			// 上下文已取消，正常退出
@@ -157,7 +150,7 @@ func (s *DHTService) recvLoop(ctx context.Context) {
 			continue
 		}
 
-		pkt := &recvPacket{
+		pkt := &Packet{
 			addr: addr,
 			data: data,
 		}
@@ -166,15 +159,16 @@ func (s *DHTService) recvLoop(ctx context.Context) {
 			// 非阻塞入队：队列满直接丢弃，DHT本身允许丢包
 			select {
 			case s.recvCh <- pkt:
+				s.successCount++
 			default:
-				// TODO: 可增加丢弃计数指标
+				s.failCount++
 			}
 		}
 	}
 }
 
 // 校验检查接受到的包的格式. 不正确的格式直接丢弃
-func checkReceivePacket(pkt *recvPacket) bool {
+func checkReceivePacket(pkt *Packet) bool {
 	resp := pkt.data
 	//收到的是响应, 检查事务的长度
 	t, err := resp.GetDictValue("t")
@@ -224,7 +218,7 @@ func (s *DHTService) handleLoop(ctx context.Context) {
 			return
 		case pkt := <-s.recvCh:
 			// 调用业务处理入口
-			s.handleMessage(pkt.addr, pkt.data)
+			s.handleMessage(pkt)
 		}
 	}
 }
@@ -238,7 +232,7 @@ func (s *DHTService) sendLoop(ctx context.Context) {
 			return
 		case pkt := <-s.sendCh:
 			// 发送失败直接忽略，DHT不保证可靠交付
-			_, _ = s.udpConn.WriteToUDP(pkt.data, pkt.addr)
+			_, _ = s.udpConn.WriteToUDP(pkt.data.Encode(), pkt.addr)
 		}
 	}
 }
@@ -246,7 +240,7 @@ func (s *DHTService) sendLoop(ctx context.Context) {
 // Send 对外发送接口：业务层只需要调用此方法发消息，不用关心UDP细节
 // 非阻塞发送，队列满直接丢弃
 func (s *DHTService) Send(addr *net.UDPAddr, data []byte) {
-	pkt := &sendPacket{
+	pkt := &Packet{
 		addr: addr,
 		data: data,
 	}
@@ -258,14 +252,19 @@ func (s *DHTService) Send(addr *net.UDPAddr, data []byte) {
 	}
 }
 
-// handleMessage 处理一条 UDP 消息。
-// TODO(学习): 用 bencode 解码消息，根据 y(类型) 字段分派：
-//
-//	y == "r" -> handleResponse
-//	y == "q" -> handleQuery
-func (s *DHTService) handleMessage(addr *net.UDPAddr, data []byte) {
+func (s *DHTService) handleMessage(pkt *Packet) {
 	// 骨架：暂不实现，等你学完 bencode 后填充。
-	slog.Debug("udp packet", "from", addr.String(), "len", len(data))
+	slog.Debug("udp packet", "from", pkt.addr.String(), "type", pkt.data.Type)
+	data := pkt.data
+	y, err := data.GetDictStrValue("y")
+	if err != nil {
+		slog.Warn("get y error", "err", err)
+		return
+	}
+	if y == "q" {
+
+	}
+
 }
 
 // Close 释放资源。
