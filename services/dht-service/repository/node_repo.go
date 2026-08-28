@@ -46,7 +46,7 @@ func (r *NodeRepo) UpsertNode(n *DHTNode) error {
 // ListRecentNodes 返回最近 last_seen 的节点，用于引导新节点加入网络。
 func (r *NodeRepo) ListRecentNodes(target []byte, limit int) ([]DHTNode, error) {
 	k_bucket := target[0]
-	nodes := []DHTNode{}
+	nodes := make([]DHTNode, 0, limit)
 	err := r.db.Select(&nodes,
 		`SELECT node_id, ip, port,token, last_seen
 		FROM dht_nodes where k_bucket = ? 
