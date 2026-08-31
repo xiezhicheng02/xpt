@@ -21,7 +21,7 @@ func (s *DHTService) handleResponseMessage(pkt *Packet) {
 		return
 	}
 
-	_, err = data.GetDictStrValue("r")
+	_, err = data.GetDictValue("r")
 	if err != nil {
 		slog.Error("handleQueryMessage", "err", err)
 		s.sendError(pkt.addr, txid, 201, "无效的")
@@ -129,7 +129,7 @@ func (s *DHTService) handleFindNodeResp(pkt *Packet) {
 		nodes4, _ := nodes.ToByteString()
 		size := len(nodes4) / 26
 		for i := range size {
-			aa := nodes4[26*(i-1) : 26*i]
+			aa := nodes4[26*i : 26*i+26]
 			id := aa[0:20]
 			ip := aa[20:24]
 			port := int(binary.BigEndian.Uint16(aa[24:26]))
@@ -156,7 +156,7 @@ func (s *DHTService) handleFindNodeResp(pkt *Packet) {
 		nodes6B, _ := nodes.ToByteString()
 		size := len(nodes6B) / 38
 		for i := range size {
-			aa := nodes6B[38*(i-1) : 38*i]
+			aa := nodes6B[38*i : 38*i+38]
 			id := aa[0:20]
 			ip := aa[20:36]
 			port := int(binary.BigEndian.Uint16(aa[36:38]))

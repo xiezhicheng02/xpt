@@ -18,7 +18,8 @@ func SHA1(data []byte) [20]byte {
 
 // SHA1Hex 返回 SHA1 的十六进制字符串（用于展示与数据库存储）。
 func SHA1Hex(data []byte) string {
-	return hex.EncodeToString(SHA1(data))
+	sha1 := SHA1(data)
+	return hex.EncodeToString(sha1[:])
 }
 
 // RandToken 生成 n 字节的随机 token（十六进制字符串）。

@@ -65,11 +65,22 @@ type PendingTable struct {
 	items map[string]*PendingRequest // key: 事务ID字符串
 }
 
-// NewPendingTable 初始化待处理表
-func NewPendingTable() *PendingTable {
-	return &PendingTable{
-		items: make(map[string]*PendingRequest),
-	}
+// Match 匹配响应，匹配成功则返回并删除缓存
+func (pt *PendingTable) Put(txID []byte, pr *PendingRequest) bool {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+
+	key := string(txID)
+	pt.items[key] = pr
+	return true
+}
+func (pt *PendingTable) Remove(txID []byte) bool {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+
+	key := string(txID)
+	delete(pt.items, key)
+	return true
 }
 
 // Match 匹配响应，匹配成功则返回并删除缓存

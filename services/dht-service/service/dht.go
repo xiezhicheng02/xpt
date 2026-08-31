@@ -13,7 +13,9 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"runtime"
@@ -41,14 +43,6 @@ type DHTService struct {
 	udpConn *net.UDPConn
 	// selfID 是本节点在 DHT 网络中的 20 字节随机 ID。
 	selfID [20]byte
-
-	// bootstrapNodes 是初始引导节点（如 dht.transmissionbt.com）。
-	// TODO: 从配置读取，填入知名 DHT 引导节点。
-	bootstrapNodes []string
-
-	// routingTable 是 Kademlia 路由表。
-	// TODO: 实现桶结构（按距离分桶，桶容量 8）。
-	routingTable map[string]bool
 
 	// 双通道队列
 	recvCh chan *Packet // 接收队列：IO层 → 业务层
@@ -108,6 +102,11 @@ func (s *DHTService) Run(ctx context.Context) error {
 		go s.handleLoop(ctx)
 	}
 
+	//3.1 发送引导请求
+	for i := range BootstrapAddrs {
+		s.SendFindNodeBootstrap(BootstrapAddrs[i])
+	}
+
 	// 4. 主协程阻塞等待取消信号
 	<-ctx.Done()
 
@@ -117,6 +116,84 @@ func (s *DHTService) Run(ctx context.Context) error {
 		slog.Error("failed to close UDP connection", "err", err)
 		return err
 	}
+	return nil
+}
+
+var BootstrapAddrs = []string{
+	"router.bittorrent.com:6881",
+	"dht.transmissionbt.com:6881",
+	"router.utorrent.com:6881",
+	"dht.libtorrent.org:25401",
+}
+
+// SendFindNodeBootstrap 向指定引导节点发送 find_node 请求，用于冷启动填充路由表
+// 参数 bootstrapAddr: 引导节点地址，格式 "host:port"，例如 "router.bittorrent.com:6881"
+func (s *DHTService) SendFindNodeBootstrap(bootstrapAddr string) error {
+	// 1. 解析域名到 UDP 地址（默认 IPv4，IPv6 改为 "udp6"）
+	udpAddr, err := net.ResolveUDPAddr("udp4", bootstrapAddr)
+	if err != nil {
+		return fmt.Errorf("解析引导节点地址失败 %s: %w", bootstrapAddr, err)
+	}
+
+	// 2. 生成 2 字节随机事务 ID（DHT 标准长度）
+	txID := make([]byte, 2)
+	if _, err := rand.Read(txID); err != nil {
+		return fmt.Errorf("生成事务ID失败: %w", err)
+	}
+
+	findId := randomNodeID()
+
+	// 3. 构造标准 BEP 5 find_node 请求报文
+	req := &bencode.BNode{
+		Type: bencode.BDict,
+		Dict: map[string]*bencode.BNode{
+			"t": {
+				Type: bencode.BString,
+				Str:  txID,
+			},
+			"y": {
+				Type: bencode.BString,
+				Str:  []byte("q"),
+			},
+			"q": {
+				Type: bencode.BString,
+				Str:  []byte("find_node"),
+			},
+			"a": {
+				Type: bencode.BDict,
+				Dict: map[string]*bencode.BNode{
+					"id": {
+						Type: bencode.BString,
+						Str:  findId, // 本节点 ID
+					},
+					"target": {
+						Type: bencode.BString,
+						Str:  findId, // 引导阶段查询自身ID，获取离自己最近的节点
+					},
+				},
+			},
+		},
+	}
+
+	// 4. bencode 编码为二进制报文
+	data := req.Encode()
+
+	// 5. 提前存入待处理请求表，后续响应通过 txID 匹配
+	s.PendingTable.Put(txID, &PendingRequest{
+		Method:     "find_node",
+		Target:     findId,
+		RemoteAddr: udpAddr,
+		SentAt:     time.Now(),
+		Retry:      0,
+	})
+
+	// 6. 通过 UDP 连接发送报文
+	if _, err := s.udpConn.WriteTo(data, udpAddr); err != nil {
+		// 发送失败则回滚清理待处理表
+		s.PendingTable.Remove(txID)
+		return fmt.Errorf("发送 find_node 到 %s 失败: %w", bootstrapAddr, err)
+	}
+
 	return nil
 }
 
@@ -139,6 +216,7 @@ func (s *DHTService) receiveLoop(ctx context.Context) {
 			return
 		}
 		n, addr, err := s.udpConn.ReadFromUDP(buf)
+		slog.Info("receive Pkd size", "size", n)
 		if err != nil || n == 1025 {
 			// 超时是正常现象，直接下一轮
 			var ne net.Error
@@ -163,7 +241,7 @@ func (s *DHTService) receiveLoop(ctx context.Context) {
 			addr: addr,
 			data: data,
 		}
-
+		slog.Info("receive Pkd addr", "addr", pkt.addr)
 		if s.checkReceivePacket(pkt) {
 			// 非阻塞入队：队列满直接丢弃，DHT本身允许丢包
 			select {
@@ -205,7 +283,7 @@ func (s *DHTService) checkReceivePacket(pkt *Packet) bool {
 			// 匹配失败：不是自己的请求、已过期、地址不匹配，直接丢弃
 			return false
 		}
-		pkt.pendingRequest = *pr
+		pkt.pendingRequest = pr
 		//返回true, 校验通过, 进入处理逻辑
 		return true
 	case "q":
@@ -256,7 +334,7 @@ func (s *DHTService) sendLoop(ctx context.Context) {
 
 // Send 对外发送接口：业务层只需要调用此方法发消息，不用关心UDP细节
 // 非阻塞发送，队列满直接丢弃
-func (s *DHTService) Send(addr *net.UDPAddr, data []byte) {
+func (s *DHTService) Send(addr *net.UDPAddr, data *bencode.BNode) {
 	pkt := &Packet{
 		addr: addr,
 		data: data,
@@ -265,7 +343,7 @@ func (s *DHTService) Send(addr *net.UDPAddr, data []byte) {
 	select {
 	case s.sendCh <- pkt:
 	default:
-		// TODO: 可增加发送丢弃计数指标
+		s.failCount++
 	}
 }
 
@@ -279,7 +357,14 @@ func (s *DHTService) handleMessage(pkt *Packet) {
 		return
 	}
 	if y == "q" {
-
+		s.handleQueryMessage(pkt)
+	}
+	if y == "r" {
+		s.handleResponseMessage(pkt)
+	}
+	if y == "e" {
+		e, _ := data.GetDictStrValue("e")
+		slog.Info("收到错误信息响应", "e", e)
 	}
 
 }

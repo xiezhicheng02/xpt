@@ -93,7 +93,7 @@ func appendNode(buf []byte, n *BNode) []byte {
 			buf = append(buf, n.Raw...)
 		} else {
 			buf = append(buf, 'i')
-			buf = strconv.AppendInt(buf, n.Int, 10)
+			buf = strconv.AppendInt(buf, int64(n.Int), 10)
 			buf = append(buf, 'e')
 		}
 
