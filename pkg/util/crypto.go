@@ -11,9 +11,9 @@ import (
 )
 
 // SHA1 计算数据的 SHA1 摘要（BitTorrent info hash 即用此算法）。
-func SHA1(data []byte) []byte {
+func SHA1(data []byte) [20]byte {
 	h := sha1.Sum(data)
-	return h[:]
+	return h
 }
 
 // SHA1Hex 返回 SHA1 的十六进制字符串（用于展示与数据库存储）。

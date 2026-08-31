@@ -28,8 +28,9 @@ import (
 
 // Packet 接收队列中的报文：已完成基础解码校验
 type Packet struct {
-	addr *net.UDPAddr   // 对端地址
-	data *bencode.BNode // 原始报文数据（后续替换为解析后的KRPC结构体）
+	addr           *net.UDPAddr   // 对端地址
+	data           *bencode.BNode // 原始报文数据（后续替换为解析后的KRPC结构体）
+	pendingRequest *PendingRequest
 }
 
 // DHTService 是 DHT 爬虫服务的主结构。
@@ -39,7 +40,7 @@ type DHTService struct {
 
 	udpConn *net.UDPConn
 	// selfID 是本节点在 DHT 网络中的 20 字节随机 ID。
-	selfID []byte
+	selfID [20]byte
 
 	// bootstrapNodes 是初始引导节点（如 dht.transmissionbt.com）。
 	// TODO: 从配置读取，填入知名 DHT 引导节点。
@@ -55,6 +56,8 @@ type DHTService struct {
 
 	failCount    int //没有进入通道而丢弃的包的数量,
 	successCount int //送入通道的数量
+
+	PendingTable *PendingTable
 }
 
 // New 构造 DHTService，并准备 UDP 监听。
@@ -79,6 +82,12 @@ func New(
 		// 队列缓冲：2048 是 DHT 场景的经验值，兼顾抗峰值与内存占用
 		recvCh: make(chan *Packet, 2048),
 		sendCh: make(chan *Packet, 2048),
+
+		failCount:    0,
+		successCount: 0,
+		PendingTable: &PendingTable{
+			items: make(map[string]*PendingRequest),
+		},
 	}, nil
 }
 
@@ -155,7 +164,7 @@ func (s *DHTService) receiveLoop(ctx context.Context) {
 			data: data,
 		}
 
-		if checkReceivePacket(pkt) {
+		if s.checkReceivePacket(pkt) {
 			// 非阻塞入队：队列满直接丢弃，DHT本身允许丢包
 			select {
 			case s.recvCh <- pkt:
@@ -168,7 +177,7 @@ func (s *DHTService) receiveLoop(ctx context.Context) {
 }
 
 // 校验检查接受到的包的格式. 不正确的格式直接丢弃
-func checkReceivePacket(pkt *Packet) bool {
+func (s *DHTService) checkReceivePacket(pkt *Packet) bool {
 	resp := pkt.data
 	//收到的是响应, 检查事务的长度
 	t, err := resp.GetDictValue("t")
@@ -189,6 +198,14 @@ func checkReceivePacket(pkt *Packet) bool {
 			slog.Error(" 收到响应的t长度不对, 直接丢弃 ")
 			return false
 		}
+		//需要校验请求映射表, 只处理自己发送的请求的响应, 不是自己请求的直接抛弃
+		txid, _ := t.ToByteString()
+		pr, ok := s.PendingTable.Match(txid, pkt.addr)
+		if !ok {
+			// 匹配失败：不是自己的请求、已过期、地址不匹配，直接丢弃
+			return false
+		}
+		pkt.pendingRequest = *pr
 		//返回true, 校验通过, 进入处理逻辑
 		return true
 	case "q":

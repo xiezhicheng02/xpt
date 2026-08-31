@@ -30,7 +30,7 @@ func (t BType) String() string {
 
 type BNode struct {
 	Type     BType
-	Int      int64
+	Int      int
 	Str      []byte
 	List     []*BNode
 	Dict     map[string]*BNode

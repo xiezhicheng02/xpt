@@ -2,17 +2,21 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/xiezc/xpt/services/dht-service/migrate"
 )
 
 // InfoHash 表示 DHT 网络中发现的 infohash。
 // 字段与 dht_infohash 表对应。
 type InfoHash struct {
-	ID         int64     `db:"id"`
-	InfoHash   string    `db:"info_hash"`
-	Discovered time.Time `db:"discover_at"`
+	PeerId      *migrate.Hash `db:"peer_id"`
+	InfoHash    *migrate.Hash `db:"info_hash"`
+	Port        *int          `db:"port"`
+	ImpliedPort *int          `db:"implied_port"`
+	LastSeen    time.Time     `db:"last_seen"`
 }
 
 // InfoHashRepo 负责 dht_infohash 表的读写。
@@ -25,30 +29,28 @@ func NewInfoHashRepo(db *sqlx.DB) *InfoHashRepo {
 }
 
 // Insert 记录一个新发现的 infohash（重复则忽略）。
-func (r *InfoHashRepo) Insert(hash string, nodeId string) error {
+func (r *InfoHashRepo) UpsertInfoHash(infoHash *InfoHash) error {
 	_, err := r.db.Exec(`
-INSERT OR IGNORE INTO dht_infohash(info_hash, node_id, discover_at)
-VALUES (?,?, ?)`, hash, nodeId, time.Now())
+		INSERT INTO dht_infohash(peer_id, info_hash, port, implied_port, last_seen)
+		VALUES (?, ?, ?, ?, ? )
+		ON CONFLICT(peer_id) DO UPDATE SET
+			peer_id = COALESCE(excluded.peer_id, dht_infohash.peer_id),
+			info_hash = COALESCE(excluded.info_hash, dht_infohash.info_hash),
+			port = COALESCE(excluded.port, dht_infohash.port),
+			implied_port = COALESCE(excluded.implied_port, dht_infohash.implied_port),
+		    last_seen = excluded.last_seen`,
+		infoHash.PeerId, infoHash.InfoHash, infoHash.Port, infoHash.ImpliedPort, infoHash.LastSeen)
 	return err
 }
 
-// ListAll 返回全部已知 infohash。
-// TODO: 数据量大后需要加分页，当前仅用于学习阶段。
-func (r *InfoHashRepo) ListAll() ([]InfoHash, error) {
-	rows := []InfoHash{}
+func (r *InfoHashRepo) ListByInfoHash(hash *migrate.Hash, klimit int) ([]InfoHash, error) {
+	var rows []InfoHash
 	err := r.db.Select(&rows, `
-SELECT id, info_hash, discover_at
-FROM dht_infohash
-ORDER BY discover_at DESC`)
-	if err == sql.ErrNoRows {
+		SELECT peer_id, info_hash, port, implied_port, last_seen
+		FROM dht_infohash where info_hash = ?
+		ORDER BY last_seen DESC limit ?`, hash, klimit)
+	if errors.Is(err, sql.ErrNoRows) {
 		return rows, nil
 	}
 	return rows, err
-}
-
-// Count 返回已发现 infohash 的总数。
-func (r *InfoHashRepo) Count() (int, error) {
-	var n int
-	err := r.db.Get(&n, `SELECT COUNT(*) FROM dht_infohash`)
-	return n, err
 }

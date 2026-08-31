@@ -69,7 +69,7 @@ func parseInt(data []byte, pos *int) (*BNode, error) {
 		return nil, fmt.Errorf("%w: bad integer %q", ErrInvalidData, raw)
 	}
 	*pos = i //写回外部的指针, 改变外部的指针对应的值
-	return &BNode{Type: BInt, Int: v, Raw: data[start-1 : i]}, nil
+	return &BNode{Type: BInt, Int: int(v), Raw: data[start-1 : i]}, nil
 }
 
 // parseString 解析 <长度>:<字节> 形式。
@@ -146,7 +146,7 @@ func parseDict(data []byte, pos *int) (*BNode, error) {
 	}
 }
 
-func (n *BNode) ToInt() (int64, error) {
+func (n *BNode) ToInt() (int, error) {
 	if n == nil || n.Type != BInt {
 		return 0, fmt.Errorf("%w: expect Bnode type %s", ErrUnexpectedTypeData, BInt)
 	}
@@ -208,7 +208,7 @@ func (n *BNode) GetDictStrValue(key string) (string, error) {
 }
 
 // GetDictIntValue 返回字典键的整数值；key不存在返回(0,nil)；类型错误返回error
-func (n *BNode) GetDictIntValue(key string) (int64, error) {
+func (n *BNode) GetDictIntValue(key string) (int, error) {
 	v, err := n.GetDictValue(key)
 	if err != nil {
 		return 0, err
