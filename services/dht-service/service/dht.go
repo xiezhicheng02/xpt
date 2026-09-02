@@ -13,32 +13,25 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"runtime"
 	"time"
 
 	"github.com/xiezc/xpt/pkg/bencode"
+	"github.com/xiezc/xpt/pkg/config"
 	"github.com/xiezc/xpt/pkg/util"
 	"github.com/xiezc/xpt/services/dht-service/repository"
 )
-
-// -------------------- 内部消息结构体 --------------------
-
-// Packet 接收队列中的报文：已完成基础解码校验
-type Packet struct {
-	addr           *net.UDPAddr   // 对端地址
-	data           *bencode.BNode // 原始报文数据（后续替换为解析后的KRPC结构体）
-	pendingRequest *PendingRequest
-}
 
 // DHTService 是 DHT 爬虫服务的主结构。
 type DHTService struct {
 	nodeRepo *repository.NodeRepo
 	hashRepo *repository.InfoHashRepo
+	cfg      *config.Config
+
+	PendingTable *PendingTable
 
 	udpConn *net.UDPConn
 	// selfID 是本节点在 DHT 网络中的 20 字节随机 ID。
@@ -47,19 +40,15 @@ type DHTService struct {
 	// 双通道队列
 	recvCh chan *Packet // 接收队列：IO层 → 业务层
 	sendCh chan *Packet // 发送队列：业务层 → IO层
-
-	failCount    int //没有进入通道而丢弃的包的数量,
-	successCount int //送入通道的数量
-
-	PendingTable *PendingTable
 }
 
 // New 构造 DHTService，并准备 UDP 监听。
 func New(
 	nodeRepo *repository.NodeRepo,
 	hashRepo *repository.InfoHashRepo,
-	udpAddr string,
+	cfg *config.Config,
 ) (*DHTService, error) {
+	udpAddr := cfg.GetString("dht_udp_addr")
 	udp, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero, Port: portOf(udpAddr)})
 	if err != nil {
 		return nil, err
@@ -70,6 +59,7 @@ func New(
 	return &DHTService{
 		nodeRepo: nodeRepo,
 		hashRepo: hashRepo,
+		cfg:      cfg,
 		udpConn:  udp,
 		selfID:   id,
 
@@ -77,8 +67,6 @@ func New(
 		recvCh: make(chan *Packet, 2048),
 		sendCh: make(chan *Packet, 2048),
 
-		failCount:    0,
-		successCount: 0,
 		PendingTable: &PendingTable{
 			items: make(map[string]*PendingRequest),
 		},
@@ -99,100 +87,14 @@ func (s *DHTService) Run(ctx context.Context) error {
 	// 3. 启动N个处理Worker：CPU核数个，并行处理报文业务逻辑
 	workerNum := runtime.NumCPU()
 	for i := 0; i < workerNum; i++ {
-		go s.handleLoop(ctx)
-	}
-
-	//3.1 发送引导请求
-	for i := range BootstrapAddrs {
-		s.SendFindNodeBootstrap(BootstrapAddrs[i])
+		go s.handleReceivePktLoop(ctx)
 	}
 
 	// 4. 主协程阻塞等待取消信号
 	<-ctx.Done()
 
 	// 5. 关闭连接，触发读写协程快速退出
-	err := s.udpConn.Close()
-	if err != nil {
-		slog.Error("failed to close UDP connection", "err", err)
-		return err
-	}
-	return nil
-}
-
-var BootstrapAddrs = []string{
-	"router.bittorrent.com:6881",
-	"dht.transmissionbt.com:6881",
-	"router.utorrent.com:6881",
-	"dht.libtorrent.org:25401",
-}
-
-// SendFindNodeBootstrap 向指定引导节点发送 find_node 请求，用于冷启动填充路由表
-// 参数 bootstrapAddr: 引导节点地址，格式 "host:port"，例如 "router.bittorrent.com:6881"
-func (s *DHTService) SendFindNodeBootstrap(bootstrapAddr string) error {
-	// 1. 解析域名到 UDP 地址（默认 IPv4，IPv6 改为 "udp6"）
-	udpAddr, err := net.ResolveUDPAddr("udp4", bootstrapAddr)
-	if err != nil {
-		return fmt.Errorf("解析引导节点地址失败 %s: %w", bootstrapAddr, err)
-	}
-
-	// 2. 生成 2 字节随机事务 ID（DHT 标准长度）
-	txID := make([]byte, 2)
-	if _, err := rand.Read(txID); err != nil {
-		return fmt.Errorf("生成事务ID失败: %w", err)
-	}
-
-	findId := randomNodeID()
-
-	// 3. 构造标准 BEP 5 find_node 请求报文
-	req := &bencode.BNode{
-		Type: bencode.BDict,
-		Dict: map[string]*bencode.BNode{
-			"t": {
-				Type: bencode.BString,
-				Str:  txID,
-			},
-			"y": {
-				Type: bencode.BString,
-				Str:  []byte("q"),
-			},
-			"q": {
-				Type: bencode.BString,
-				Str:  []byte("find_node"),
-			},
-			"a": {
-				Type: bencode.BDict,
-				Dict: map[string]*bencode.BNode{
-					"id": {
-						Type: bencode.BString,
-						Str:  findId, // 本节点 ID
-					},
-					"target": {
-						Type: bencode.BString,
-						Str:  findId, // 引导阶段查询自身ID，获取离自己最近的节点
-					},
-				},
-			},
-		},
-	}
-
-	// 4. bencode 编码为二进制报文
-	data := req.Encode()
-
-	// 5. 提前存入待处理请求表，后续响应通过 txID 匹配
-	s.PendingTable.Put(txID, &PendingRequest{
-		Method:     "find_node",
-		Target:     findId,
-		RemoteAddr: udpAddr,
-		SentAt:     time.Now(),
-		Retry:      0,
-	})
-
-	// 6. 通过 UDP 连接发送报文
-	if _, err := s.udpConn.WriteTo(data, udpAddr); err != nil {
-		// 发送失败则回滚清理待处理表
-		s.PendingTable.Remove(txID)
-		return fmt.Errorf("发送 find_node 到 %s 失败: %w", bootstrapAddr, err)
-	}
+	s.Close()
 
 	return nil
 }
@@ -246,9 +148,8 @@ func (s *DHTService) receiveLoop(ctx context.Context) {
 			// 非阻塞入队：队列满直接丢弃，DHT本身允许丢包
 			select {
 			case s.recvCh <- pkt:
-				s.successCount++
 			default:
-				s.failCount++
+				slog.Error("receive packet channel full")
 			}
 		}
 	}
@@ -268,24 +169,24 @@ func (s *DHTService) checkReceivePacket(pkt *Packet) bool {
 		return false
 	}
 	switch y {
-	case "e":
-		slog.Error("受到错误响应, 直接丢弃")
-		return false
-	case "r":
-		if len(t.Str) > 2 {
+	case "r", "e":
+		if len(t.Str) > 8 || len(t.Str) < 1 {
 			slog.Error(" 收到响应的t长度不对, 直接丢弃 ")
 			return false
 		}
 		//需要校验请求映射表, 只处理自己发送的请求的响应, 不是自己请求的直接抛弃
 		txid, _ := t.ToByteString()
+		if txid == nil {
+			return false
+		}
 		pr, ok := s.PendingTable.Match(txid, pkt.addr)
 		if !ok {
 			// 匹配失败：不是自己的请求、已过期、地址不匹配，直接丢弃
 			return false
 		}
-		pkt.pendingRequest = pr
+		pr.RespChan <- pkt
 		//返回true, 校验通过, 进入处理逻辑
-		return true
+		return false
 	case "q":
 		_, err := resp.GetDictValue("a")
 		if err != nil {
@@ -304,20 +205,6 @@ func (s *DHTService) checkReceivePacket(pkt *Packet) bool {
 	}
 }
 
-// handleLoop 业务处理Worker：从接收队列取报文，执行业务逻辑
-// 数量为CPU核数个，CPU密集型处理最优
-func (s *DHTService) handleLoop(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case pkt := <-s.recvCh:
-			// 调用业务处理入口
-			s.handleMessage(pkt)
-		}
-	}
-}
-
 // sendLoop 发送协程：从发送队列取报文，统一写UDP
 // 单协程写入，避免多协程并发写导致的报文交错与系统调用开销
 func (s *DHTService) sendLoop(ctx context.Context) {
@@ -330,43 +217,6 @@ func (s *DHTService) sendLoop(ctx context.Context) {
 			_, _ = s.udpConn.WriteToUDP(pkt.data.Encode(), pkt.addr)
 		}
 	}
-}
-
-// Send 对外发送接口：业务层只需要调用此方法发消息，不用关心UDP细节
-// 非阻塞发送，队列满直接丢弃
-func (s *DHTService) Send(addr *net.UDPAddr, data *bencode.BNode) {
-	pkt := &Packet{
-		addr: addr,
-		data: data,
-	}
-
-	select {
-	case s.sendCh <- pkt:
-	default:
-		s.failCount++
-	}
-}
-
-func (s *DHTService) handleMessage(pkt *Packet) {
-	// 骨架：暂不实现，等你学完 bencode 后填充。
-	slog.Debug("udp packet", "from", pkt.addr.String(), "type", pkt.data.Type)
-	data := pkt.data
-	y, err := data.GetDictStrValue("y")
-	if err != nil {
-		slog.Warn("get y error", "err", err)
-		return
-	}
-	if y == "q" {
-		s.handleQueryMessage(pkt)
-	}
-	if y == "r" {
-		s.handleResponseMessage(pkt)
-	}
-	if y == "e" {
-		e, _ := data.GetDictStrValue("e")
-		slog.Info("收到错误信息响应", "e", e)
-	}
-
 }
 
 // Close 释放资源。

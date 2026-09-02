@@ -3,21 +3,90 @@ package service
 
 import (
 	"encoding/binary"
+	"errors"
 	"log/slog"
 	"net"
 	"time"
 
+	"github.com/xiezc/xpt/pkg/bencode"
 	"github.com/xiezc/xpt/services/dht-service/migrate"
 	"github.com/xiezc/xpt/services/dht-service/repository"
 )
 
-func (s *DHTService) handleResponseMessage(pkt *Packet) {
+func (s *DHTService) DoSend(data *bencode.BNode, method string, addr *net.UDPAddr) error {
+	pkt := &Packet{
+		data: data,
+		addr: addr,
+	}
+
+	a, err := data.GetDictValue("a")
+	if err != nil {
+		return err
+	}
+	id, err := a.GetDictValue("id")
+	if err != nil {
+		return err
+	}
+	target, err := id.ToByteString()
+	if err != nil {
+		return err
+	}
+
+	pq := &PendingRequest{
+		Method:     method,
+		Target:     target,
+		RemoteAddr: addr,
+		SentAt:     time.Now(),
+		Retry:      0,
+		RespChan:   make(chan *Packet, 1),
+	}
+
+	t, _ := data.GetDictValue("t")
+	var txId []byte
+	if t == nil {
+		txId = randomTxID(2)
+	} else {
+		txId, err = t.ToByteString()
+		if err != nil {
+			txId = randomTxID(2)
+		}
+	}
+
+	// 5. 提前存入待处理请求表，后续响应通过 txID 匹配
+	s.PendingTable.Put(txId, pq)
+	defer s.PendingTable.Remove(txId) //删除对应的路由表
+
+	//异步发送
+	select {
+	case s.sendCh <- pkt:
+	default:
+		return errors.New("发送队列已满，请求丢弃")
+	}
+
+	select {
+	case resp := <-pq.RespChan:
+		s.handleResponseMessage(resp, method)
+	case <-time.After(time.Second * 10): //默认10秒超市
+		// 超时未收到响应
+		return errors.New("ping 请求超时")
+	default:
+		return errors.New("接收队列已满，已经受到请求内, 不会重复处理的")
+	}
+	return nil
+}
+
+func (s *DHTService) handleResponseMessage(pkt *Packet, method string) {
 	// 骨架：暂不实现，等你学完 bencode 后填充。
 	data := pkt.data
 	t, err := data.GetDictValue("t")
 	txid, err := t.ToByteString()
 	if err != nil {
 		slog.Error("handleQueryMessage", "err", err)
+		return
+	}
+	e, _ := data.GetDictValue("e")
+	if e != nil {
+		slog.Error("handleQueryMessage 受到错误响应", "err", e)
 		return
 	}
 
@@ -28,8 +97,7 @@ func (s *DHTService) handleResponseMessage(pkt *Packet) {
 		return
 	}
 
-	req := pkt.pendingRequest
-	switch req.Method {
+	switch method {
 	case "ping":
 		//更新数据库信息
 		s.upsertRespDhtNode(pkt)

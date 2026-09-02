@@ -54,6 +54,16 @@ func (r *NodeRepo) ListRecentNodes(kBucket int, limit int) ([]DHTNode, error) {
 	return nodes, err
 }
 
+// 获取超出相应时间的节点
+func (r *NodeRepo) GetExpireNodes(expireTime time.Time) ([]DHTNode, error) {
+	nodes := make([]DHTNode, 0, 1)
+	err := r.db.Select(&nodes,
+		`SELECT node_id, ip, port,token, last_seen
+		FROM dht_nodes where last_seen < ?
+		ORDER BY last_seen DESC`, expireTime)
+	return nodes, err
+}
+
 func (r *NodeRepo) GetNode(nodeID [20]byte) (*DHTNode, error) {
 	nodes := make([]DHTNode, 0, 1)
 	err := r.db.Select(&nodes,

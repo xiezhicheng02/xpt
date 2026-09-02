@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"log/slog"
 	"math/bits"
@@ -12,6 +13,36 @@ import (
 	"github.com/xiezc/xpt/services/dht-service/migrate"
 	"github.com/xiezc/xpt/services/dht-service/repository"
 )
+
+// handleReceivePktLoop 业务处理Worker：从接收队列取报文，执行业务逻辑
+// 数量为CPU核数个，CPU密集型处理最优
+func (s *DHTService) handleReceivePktLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case pkt := <-s.recvCh:
+			// 骨架：暂不实现，等你学完 bencode 后填充。
+			slog.Debug("udp packet", "from", pkt.addr.String(), "type", pkt.data.Type)
+			data := pkt.data
+			y, err := data.GetDictStrValue("y")
+			if err != nil {
+				slog.Warn("get y error", "err", err)
+				return
+			}
+			if y == "q" {
+				s.handleQueryMessage(pkt)
+			}
+			if y == "r" {
+				slog.Error("handleReceivePktLoop 不处理响应的包")
+			}
+			if y == "e" {
+				e, _ := data.GetDictStrValue("e")
+				slog.Info("收到错误信息响应", "e", e)
+			}
+		}
+	}
+}
 
 func (s *DHTService) handleQueryMessage(pkt *Packet) {
 	node := pkt.data
@@ -33,11 +64,6 @@ func (s *DHTService) handleQueryMessage(pkt *Packet) {
 		s.sendFindNodeResponse(pkt)
 	case "get_peers":
 		//生成token，返回token+nodes
-		//{"t":"原txid","y":"r","r":{
-		//"id":"我方id",
-		//"token":"8字节随机token",
-		//"values":["6字节peer1","6字节peer2"...]
-		//}}
 		s.handleGetPeers(pkt)
 	case "announce_peer":
 		//校验token，提取info_hash存入hashRepo，返回简单response
@@ -471,14 +497,11 @@ func sendPktToChannel(sendData *bencode.BNode, addr *net.UDPAddr, s *DHTService)
 	sendPkt := &Packet{
 		addr,
 		sendData,
-		nil,
 	}
 	select {
 	case s.sendCh <- sendPkt:
-		s.successCount++
 	default:
 		// 队列满，丢弃，可加计数指标
-		s.failCount++
 	}
 }
 

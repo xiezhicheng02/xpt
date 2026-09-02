@@ -6,7 +6,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/xiezc/xpt/services/dht-service/migrate"
@@ -45,24 +44,15 @@ func randomNodeID() []byte {
 	return b
 }
 
+func randomTxID(len int) []byte {
+	b := make([]byte, len)
+	_, _ = rand.Read(b)
+	return b
+}
+
 // hexID 将节点 ID 转为十六进制字符串（用于日志）。
 func hexID(id migrate.Hash) string {
 	return hex.EncodeToString(id[:])
-}
-
-// PendingRequest 待处理的主动请求
-type PendingRequest struct {
-	Method     string       // 请求方法：find_node/get_peers/announce_peer
-	Target     []byte       // 目标：节点ID 或 infohash
-	RemoteAddr *net.UDPAddr // 目标节点地址
-	SentAt     time.Time    // 发送时间
-	Retry      int          // 已重试次数
-}
-
-// PendingTable 待处理请求表，并发安全
-type PendingTable struct {
-	mu    sync.RWMutex
-	items map[string]*PendingRequest // key: 事务ID字符串
 }
 
 // Match 匹配响应，匹配成功则返回并删除缓存

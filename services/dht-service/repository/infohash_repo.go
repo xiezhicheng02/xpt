@@ -28,6 +28,12 @@ func NewInfoHashRepo(db *sqlx.DB) *InfoHashRepo {
 	return &InfoHashRepo{db: db}
 }
 
+func (r *InfoHashRepo) DeleteByNodeId(nodeId migrate.Hash) error {
+	_, err := r.db.Exec(
+		`DELETE FROM  dht_infohash where peer_id = ?`, nodeId)
+	return err
+}
+
 // Insert 记录一个新发现的 infohash（重复则忽略）。
 func (r *InfoHashRepo) UpsertInfoHash(infoHash *InfoHash) error {
 	_, err := r.db.Exec(`
