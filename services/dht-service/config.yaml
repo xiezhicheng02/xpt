@@ -2,14 +2,13 @@ debug: true
 log_level: debug
 dht_sqlite_path: "./data/dht.db"
 grpc_listen: "127.0.0.1:50052"
-dht_udp_addr: "0.0.0.0:6881"
+dht_udp_addr: "0.0.0.0:16881"
 
 
 pending_table:
-  clean_job_second: 3  # 清除路由表的定时任务的执行时间
-  pending_time: 15 # 路由表的超时时间
+  expire_time: 15 # 路由表的超时时间
 
 
-kbucket:
+k_bucket:
   expire_time: 600 # 节点的过期时间
-  clean_job_time: 300 # 5分钟巡检一次, 巡检只对超出5分钟的节点进行 存活检查, 对于超出10分钟的节点, 直接删除
+  cron_time: 300 # 5分钟巡检一次, 巡检只对超出5分钟的节点进行 存活检查, 对于超出10分钟的节点, 直接删除

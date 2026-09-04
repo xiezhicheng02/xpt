@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"log/slog"
 	"net"
 	"time"
 
@@ -30,7 +31,7 @@ func NewNodeRepo(db *sqlx.DB) *NodeRepo {
 
 // UpsertNode 插入或更新一个已知节点（以 node_id 去重）。
 func (r *NodeRepo) UpsertNode(n *DHTNode) error {
-	_, err := r.db.Exec(`
+	c, err := r.db.Exec(`
 		INSERT INTO dht_nodes(node_id, k_bucket, ip, port, token,  last_seen)
 		VALUES (?, ?, ?, ?, ?,? )
 		ON CONFLICT(node_id) DO UPDATE SET
@@ -40,6 +41,11 @@ func (r *NodeRepo) UpsertNode(n *DHTNode) error {
 			token = COALESCE(excluded.token, dht_nodes.token),
 		    last_seen = excluded.last_seen`,
 		n.NodeID, n.KBucket, n.IP, n.Port, n.Token, n.LastSeen)
+	affected, err := c.RowsAffected()
+	if err != nil {
+		return err
+	}
+	slog.Info("UpsertNode count", "k", n.KBucket, "c", affected)
 	return err
 }
 
@@ -104,4 +110,13 @@ func (r *NodeRepo) GetNodes(nodeID []*migrate.Hash) ([]DHTNode, error) {
 	// 6. 执行查询
 	err = r.db.Select(&nodes, query, args...)
 	return nodes, err
+}
+
+func (r *NodeRepo) DeleteById(node_id migrate.Hash) error {
+	_, err := r.db.Exec(
+		`DELETE FROM dht_nodes where node_id = ?`, node_id)
+	if err != nil {
+		return err
+	}
+	return nil
 }

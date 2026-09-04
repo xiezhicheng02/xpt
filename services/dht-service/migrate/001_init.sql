@@ -8,18 +8,14 @@ CREATE TABLE IF NOT EXISTS dht_nodes
     last_seen DATETIME NOT NULL
 );
 
-
-create table dht_infohash
+create table main.dht_infohash
 (
-    id           INTEGER  not null primary key autoincrement,
-    peer_id      BLOB     not null,
-    info_hash    BLOB     not null,
-    port         INTEGER,
-    implied_port INTEGER,
-    last_seen    DATETIME NOT NULL,
-
-    constraint dht_infohash_uk
-        unique (peer_id, info_hash)
+    peer_id      BLOB not null,
+    info_hash    BLOB not null,
+    port         int int,
+    implied_port int,
+    last_seen    DATETIME,
+    constraint dht_infohash_pk
+        primary key (peer_id, info_hash)
 );
-
 

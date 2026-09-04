@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/binary"
 	"log/slog"
-	"math/bits"
 	"net"
 	"time"
 
@@ -479,18 +478,6 @@ func (s *DHTService) sendFindNodeResponse(pkt *Packet) {
 
 	//发送到通道中
 	sendPktToChannel(response, pkt.addr, s)
-}
-
-// xorBucket 计算两个节点ID异或距离对应的桶编号（0~159）
-func xorBucket(selfID, nodeID migrate.Hash) int {
-	for i := 0; i < 20; i++ {
-		b := selfID[i] ^ nodeID[i]
-		if b != 0 {
-			// 字节位置×8 + 字节内前导零个数 = 最高有效位位置
-			return (19-i)*8 + bits.LeadingZeros8(b)
-		}
-	}
-	return 0 // 距离为0（节点自身）
 }
 
 func sendPktToChannel(sendData *bencode.BNode, addr *net.UDPAddr, s *DHTService) {

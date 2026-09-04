@@ -90,6 +90,15 @@ func (s *DHTService) Run(ctx context.Context) error {
 		go s.handleReceivePktLoop(ctx)
 	}
 
+	//启动定时任务
+	go s.startCleanExpiredNodes()
+
+	//启动加入引导节点
+	err := s.cleanExpiredNode()
+	if err != nil {
+		return err
+	}
+
 	// 4. 主协程阻塞等待取消信号
 	<-ctx.Done()
 
@@ -118,7 +127,6 @@ func (s *DHTService) receiveLoop(ctx context.Context) {
 			return
 		}
 		n, addr, err := s.udpConn.ReadFromUDP(buf)
-		slog.Info("receive Pkd size", "size", n)
 		if err != nil || n == 1025 {
 			// 超时是正常现象，直接下一轮
 			var ne net.Error
@@ -132,8 +140,8 @@ func (s *DHTService) receiveLoop(ctx context.Context) {
 			slog.Warn("udp read error", "err", err, n)
 			continue
 		}
-
-		data, err := bencode.Decode(buf)
+		slog.Info("receive Pkd", "data", string(buf[:n]))
+		data, err := bencode.Decode(buf[:n])
 		if err != nil {
 			slog.Warn("decode error", "err", err)
 			continue

@@ -45,10 +45,18 @@ func (s *DHTService) DoSend(data *bencode.BNode, method string, addr *net.UDPAdd
 	var txId []byte
 	if t == nil {
 		txId = randomTxID(2)
+		data.Dict["t"] = &bencode.BNode{
+			Type: bencode.BString,
+			Str:  txId,
+		}
 	} else {
 		txId, err = t.ToByteString()
 		if err != nil {
 			txId = randomTxID(2)
+			data.Dict["t"] = &bencode.BNode{
+				Type: bencode.BString,
+				Str:  txId,
+			}
 		}
 	}
 
@@ -63,14 +71,14 @@ func (s *DHTService) DoSend(data *bencode.BNode, method string, addr *net.UDPAdd
 		return errors.New("发送队列已满，请求丢弃")
 	}
 
+	pendingTime := s.cfg.GetInt("pending_table.pending_time")
+
 	select {
 	case resp := <-pq.RespChan:
 		s.handleResponseMessage(resp, method)
-	case <-time.After(time.Second * 10): //默认10秒超市
+	case <-time.After(time.Second * time.Duration(pendingTime)): //默认10秒超市
 		// 超时未收到响应
 		return errors.New("ping 请求超时")
-	default:
-		return errors.New("接收队列已满，已经受到请求内, 不会重复处理的")
 	}
 	return nil
 }
@@ -221,7 +229,7 @@ func (s *DHTService) handleFindNodeResp(pkt *Packet) {
 
 	nodes6, _ := r.GetDictValue("nodes6")
 	if nodes6 != nil {
-		nodes6B, _ := nodes.ToByteString()
+		nodes6B, _ := nodes6.ToByteString()
 		size := len(nodes6B) / 38
 		for i := range size {
 			aa := nodes6B[38*i : 38*i+38]

@@ -131,7 +131,7 @@ func startDHTService(ctx context.Context,
 	nodeRepo *repository.NodeRepo,
 	hashRepo *repository.InfoHashRepo,
 	cfg *config.Config) (*service.DHTService, error) {
-	dhtSvc, err := service.New(nodeRepo, hashRepo, cfg.GetString("dht_udp_addr"))
+	dhtSvc, err := service.New(nodeRepo, hashRepo, cfg)
 	if err != nil {
 		return nil, err
 	}

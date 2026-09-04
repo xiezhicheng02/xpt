@@ -39,7 +39,7 @@ func (r *InfoHashRepo) UpsertInfoHash(infoHash *InfoHash) error {
 	_, err := r.db.Exec(`
 		INSERT INTO dht_infohash(peer_id, info_hash, port, implied_port, last_seen)
 		VALUES (?, ?, ?, ?, ? )
-		ON CONFLICT(peer_id) DO UPDATE SET
+		ON CONFLICT(peer_id, info_hash) DO UPDATE SET
 			peer_id = COALESCE(excluded.peer_id, dht_infohash.peer_id),
 			info_hash = COALESCE(excluded.info_hash, dht_infohash.info_hash),
 			port = COALESCE(excluded.port, dht_infohash.port),
